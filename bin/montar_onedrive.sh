@@ -24,6 +24,8 @@ say() {
   if [ "$ONEDRIVE_LANG" = "en" ]; then printf '%s\n' "$2"; else printf '%s\n' "$1"; fi
 }
 
+# Conserva las variables definidas por el usuario. Solo usa la selección guardada
+# por el asistente cuando ONEDRIVE_REMOTE no se ha definido externamente.
 if [ -z "${ONEDRIVE_REMOTE+x}" ] && [ -r "$SETTINGS_FILE" ]; then
   # shellcheck disable=SC1090
   . "$SETTINGS_FILE"
