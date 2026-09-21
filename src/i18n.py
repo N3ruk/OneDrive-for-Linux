@@ -38,11 +38,8 @@ def language() -> str:
     return "en" if value.startswith("en") else "es"
 
 
-LANG = language()
-
-
 def tr(es: str, en: str) -> str:
-    return en if LANG == "en" else es
+    return en if language() == "en" else es
 
 
 def write_setting(key: str, value: str) -> None:
