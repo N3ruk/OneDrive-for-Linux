@@ -16,6 +16,8 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import GdkPixbuf, GLib, Gtk  # noqa: E402
 
+from i18n import tr, write_setting
+
 APP_NAME = "onedrive-rclone"
 DATA_HOME = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
 BIN_HOME = Path(os.environ.get("XDG_BIN_HOME", Path.home() / ".local/bin"))
@@ -27,10 +29,10 @@ MOUNT_SCRIPT = BIN_HOME / "montar_onedrive.sh"
 APP_ICON = INSTALL_DIR / "onedrive.png"
 
 REGIONS = [
-    ("global", "Microsoft Cloud Global (recomendado)"),
+    ("global", tr("Microsoft Cloud Global (recomendado)", "Microsoft Cloud Global (recommended)")),
     ("us", "Microsoft Cloud for US Government"),
     ("de", "Microsoft Cloud Germany"),
-    ("cn", "Azure / Office 365 operado por Vnet Group en China"),
+    ("cn", tr("Azure / Office 365 operado por Vnet Group en China", "Azure / Office 365 operated by Vnet Group in China")),
 ]
 
 
@@ -41,7 +43,7 @@ def rclone_binary() -> str | None:
 def run_rclone(args: list[str], timeout: float | None = None) -> subprocess.CompletedProcess[str]:
     exe = rclone_binary()
     if not exe:
-        raise FileNotFoundError("rclone no está instalado")
+        raise FileNotFoundError(tr("rclone no está instalado", "rclone is not installed"))
     env = os.environ.copy()
     env["PATH"] = f"{BIN_HOME}:{env.get('PATH', '')}"
     return subprocess.run(
@@ -108,8 +110,7 @@ def onedrive_remotes() -> list[str]:
 def save_remote(remote: str) -> None:
     APP_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     value = remote if remote.endswith(":") else f"{remote}:"
-    SETTINGS_FILE.write_text(f"ONEDRIVE_REMOTE={shlex.quote(value)}\n", encoding="utf-8")
-    os.chmod(SETTINGS_FILE, 0o600)
+    write_setting("ONEDRIVE_REMOTE", value)
 
 
 def next_remote_name() -> str:
@@ -135,7 +136,7 @@ class CancelledByUser(RuntimeError):
 
 class OneDriveSetup(Gtk.Window):
     def __init__(self, resume_mount: bool) -> None:
-        super().__init__(title="Configurar OneDrive")
+        super().__init__(title=tr("Configurar OneDrive", "Set up OneDrive"))
         self.resume_mount = resume_mount
         self.created_remote: str | None = None
         self.selected_region = "global"
@@ -176,9 +177,9 @@ class OneDriveSetup(Gtk.Window):
 
         title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         title = Gtk.Label()
-        title.set_markup("<span size='x-large' weight='bold'>Configurar OneDrive</span>")
+        title.set_markup(tr("<span size='x-large' weight='bold'>Configurar OneDrive</span>", "<span size='x-large' weight='bold'>Set up OneDrive</span>"))
         title.set_xalign(0)
-        subtitle = Gtk.Label(label="Conecta tu cuenta de Microsoft para que OneDrive pueda montarse con rclone.")
+        subtitle = Gtk.Label(label=tr("Conecta tu cuenta de Microsoft para que OneDrive pueda montarse con rclone.", "Connect your Microsoft account so OneDrive can be mounted with rclone."))
         subtitle.set_xalign(0)
         subtitle.set_line_wrap(True)
         subtitle.set_max_width_chars(58)
@@ -245,12 +246,13 @@ class OneDriveSetup(Gtk.Window):
             message.set_xalign(0)
             message.set_line_wrap(True)
             message.set_markup(
-                "<b>rclone no está instalado.</b>\n\n"
-                "El instalador de OneDrive debe instalar rclone y sus dependencias antes de ejecutar este asistente. "
-                "Vuelve a ejecutar <tt>install.sh</tt> y después abre OneDrive de nuevo."
+                tr(
+                    "<b>rclone no está instalado.</b>\n\nEl instalador de OneDrive debe instalar rclone y sus dependencias antes de ejecutar este asistente. Vuelve a ejecutar <tt>install.sh</tt> y después abre OneDrive de nuevo.",
+                    "<b>rclone is not installed.</b>\n\nThe OneDrive installer must install rclone and its dependencies before this assistant can run. Run <tt>install.sh</tt> again and then open OneDrive."
+                )
             )
             self.content.pack_start(message, True, True, 0)
-            self.buttons.pack_start(self.make_button("Cerrar", lambda *_: Gtk.main_quit()), False, False, 0)
+            self.buttons.pack_start(self.make_button(tr("Cerrar", "Close"), lambda *_: Gtk.main_quit()), False, False, 0)
             self.show_all()
             return
 
@@ -267,16 +269,17 @@ class OneDriveSetup(Gtk.Window):
         intro.set_xalign(0)
         intro.set_line_wrap(True)
         intro.set_markup(
-            "No hay ninguna cuenta de OneDrive configurada.\n\n"
-            "El asistente utilizará automáticamente la configuración recomendada de rclone. "
-            "Solo tendrás que iniciar sesión en Microsoft y, si tu cuenta tiene varias unidades, elegir cuál quieres usar."
+            tr(
+                "No hay ninguna cuenta de OneDrive configurada.\n\nEl asistente utilizará automáticamente la configuración recomendada de rclone. Solo tendrás que iniciar sesión en Microsoft y, si tu cuenta tiene varias unidades, elegir cuál quieres usar.",
+                "No OneDrive account is configured.\n\nThe assistant will automatically use the recommended rclone settings. You only need to sign in to Microsoft and, if your account has multiple drives, choose which one to use."
+            )
         )
         self.content.pack_start(intro, False, False, 0)
 
-        region_frame = Gtk.Frame(label="Región de Microsoft")
+        region_frame = Gtk.Frame(label=tr("Región de Microsoft", "Microsoft region"))
         region_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         region_box.set_border_width(10)
-        region_help = Gtk.Label(label="Déjalo en Global salvo que tu cuenta pertenezca a una nube especial.")
+        region_help = Gtk.Label(label=tr("Déjalo en Global salvo que tu cuenta pertenezca a una nube especial.", "Leave this set to Global unless your account belongs to a special Microsoft cloud."))
         region_help.set_xalign(0)
         region_help.set_line_wrap(True)
         self.region_combo = Gtk.ComboBoxText()
@@ -292,12 +295,12 @@ class OneDriveSetup(Gtk.Window):
         privacy.set_xalign(0)
         privacy.set_line_wrap(True)
         privacy.set_markup(
-            "<small>Las credenciales y tokens son gestionados directamente por rclone y no se muestran ni se guardan en la configuración propia de esta aplicación.</small>"
+            tr("<small>Las credenciales y tokens son gestionados directamente por rclone y no se muestran ni se guardan en la configuración propia de esta aplicación.</small>", "<small>Credentials and tokens are managed directly by rclone and are not displayed or stored in this application's own settings.</small>")
         )
         self.content.pack_start(privacy, False, False, 0)
 
-        connect = self.make_button("Conectar cuenta Microsoft", self.on_connect, suggested=True)
-        self.buttons.pack_start(self.make_button("Cancelar", lambda *_: Gtk.main_quit()), False, False, 0)
+        connect = self.make_button(tr("Conectar cuenta Microsoft", "Connect Microsoft account"), self.on_connect, suggested=True)
+        self.buttons.pack_start(self.make_button(tr("Cancelar", "Cancel"), lambda *_: Gtk.main_quit()), False, False, 0)
         self.buttons.pack_start(connect, False, False, 0)
         self.show_all()
 
@@ -314,7 +317,7 @@ class OneDriveSetup(Gtk.Window):
         text = Gtk.Label()
         text.set_xalign(0)
         text.set_line_wrap(True)
-        text.set_markup("<b>Se han encontrado varias configuraciones de OneDrive.</b>\nElige cuál debe usar esta aplicación.")
+        text.set_markup(tr("<b>Se han encontrado varias configuraciones de OneDrive.</b>\nElige cuál debe usar esta aplicación.", "<b>Multiple OneDrive configurations were found.</b>\nChoose which one this application should use."))
         self.content.pack_start(text, False, False, 0)
 
         combo = Gtk.ComboBoxText()
@@ -335,8 +338,8 @@ class OneDriveSetup(Gtk.Window):
             self.clear_box(self.buttons)
             self.show_new_account_page()
 
-        self.buttons.pack_start(self.make_button("Añadir otra cuenta", add_new), False, False, 0)
-        self.buttons.pack_start(self.make_button("Usar esta cuenta", use_selected, suggested=True), False, False, 0)
+        self.buttons.pack_start(self.make_button(tr("Añadir otra cuenta", "Add another account"), add_new), False, False, 0)
+        self.buttons.pack_start(self.make_button(tr("Usar esta cuenta", "Use this account"), use_selected, suggested=True), False, False, 0)
         self.show_all()
 
     def show_new_account_page(self) -> None:
@@ -344,7 +347,7 @@ class OneDriveSetup(Gtk.Window):
         intro = Gtk.Label()
         intro.set_xalign(0)
         intro.set_line_wrap(True)
-        intro.set_markup("Conecta una nueva cuenta de Microsoft. La configuración recomendada se aplicará automáticamente.")
+        intro.set_markup(tr("Conecta una nueva cuenta de Microsoft. La configuración recomendada se aplicará automáticamente.", "Connect a new Microsoft account. The recommended settings will be applied automatically."))
         self.content.pack_start(intro, False, False, 0)
 
         self.region_combo = Gtk.ComboBoxText()
@@ -352,8 +355,8 @@ class OneDriveSetup(Gtk.Window):
             self.region_combo.append(value, label)
         self.region_combo.set_active_id("global")
         self.content.pack_start(self.region_combo, False, False, 0)
-        self.buttons.pack_start(self.make_button("Cancelar", lambda *_: Gtk.main_quit()), False, False, 0)
-        self.buttons.pack_start(self.make_button("Conectar cuenta Microsoft", self.on_connect, suggested=True), False, False, 0)
+        self.buttons.pack_start(self.make_button(tr("Cancelar", "Cancel"), lambda *_: Gtk.main_quit()), False, False, 0)
+        self.buttons.pack_start(self.make_button(tr("Conectar cuenta Microsoft", "Connect Microsoft account"), self.on_connect, suggested=True), False, False, 0)
         self.show_all()
 
     def on_connect(self, _button) -> None:
@@ -362,7 +365,7 @@ class OneDriveSetup(Gtk.Window):
         self.selected_region = self.region_combo.get_active_id() or "global"
         self.worker_running = True
         self.clear_box(self.buttons)
-        self.set_status("Preparando la configuración de OneDrive…")
+        self.set_status(tr("Preparando la configuración de OneDrive…", "Preparing OneDrive setup…"))
         self.set_busy(True)
         self.show_all()
         threading.Thread(target=self.configure_worker, daemon=True).start()
@@ -376,14 +379,14 @@ class OneDriveSetup(Gtk.Window):
                 state = str(response.get("State", "") or "")
                 if not state:
                     if not is_valid_onedrive(remote):
-                        raise RuntimeError("rclone terminó la configuración, pero el remoto OneDrive no quedó válido.")
+                        raise RuntimeError(tr("rclone terminó la configuración, pero el remoto OneDrive no quedó válido.", "rclone finished the setup, but the OneDrive remote is not valid."))
                     save_remote(f"{remote}:")
                     GLib.idle_add(self.show_success, f"{remote}:")
                     return
 
                 option = response.get("Option") or {}
                 if not isinstance(option, dict):
-                    raise RuntimeError("rclone no devolvió una pregunta de configuración válida.")
+                    raise RuntimeError(tr("rclone no devolvió una pregunta de configuración válida.", "rclone did not return a valid configuration question."))
                 error = str(response.get("Error", "") or "")
                 if error:
                     GLib.idle_add(self.set_status, error)
@@ -421,13 +424,13 @@ class OneDriveSetup(Gtk.Window):
             ]
         completed = run_rclone(args)
         if completed.returncode != 0:
-            raise RuntimeError("rclone no pudo completar este paso de la configuración.")
+            raise RuntimeError(tr("rclone no pudo completar este paso de la configuración.", "rclone could not complete this configuration step."))
         data = parse_json_output(completed.stdout)
         if not data:
             # Algunas versiones pueden terminar sin imprimir JSON una vez guardado.
             if is_valid_onedrive(remote):
                 return {"State": ""}
-            raise RuntimeError("La versión instalada de rclone devolvió una respuesta no reconocida.")
+            raise RuntimeError(tr("La versión instalada de rclone devolvió una respuesta no reconocida.", "The installed rclone version returned an unrecognized response."))
         return data
 
     def resolve_question(self, option: dict[str, Any]) -> str:
@@ -443,7 +446,7 @@ class OneDriveSetup(Gtk.Window):
         if name == "config_is_local":
             GLib.idle_add(
                 self.set_status,
-                "Se abrirá el navegador. Inicia sesión con Microsoft y autoriza el acceso de rclone a OneDrive.",
+                tr("Se abrirá el navegador. Inicia sesión con Microsoft y autoriza el acceso de rclone a OneDrive.", "Your browser will open. Sign in to Microsoft and authorize rclone to access OneDrive."),
             )
             return "true"
         if name == "config_type":
@@ -478,7 +481,7 @@ class OneDriveSetup(Gtk.Window):
             if value:
                 choices.append((value, label))
         if not choices:
-            raise RuntimeError("rclone no devolvió ninguna unidad de OneDrive seleccionable.")
+            raise RuntimeError(tr("rclone no devolvió ninguna unidad de OneDrive seleccionable.", "rclone did not return any selectable OneDrive drive."))
 
         recommended = [
             pair for pair in choices
@@ -486,13 +489,13 @@ class OneDriveSetup(Gtk.Window):
             and ("personal" in pair[1].lower() or "business" in pair[1].lower())
         ]
         if len(recommended) == 1:
-            GLib.idle_add(self.set_status, f"OneDrive detectado: {recommended[0][1]}")
+            GLib.idle_add(self.set_status, tr(f"OneDrive detectado: {recommended[0][1]}", f"OneDrive detected: {recommended[0][1]}"))
             return recommended[0][0]
 
         # Si no hay una coincidencia inequívoca, el usuario elige visualmente.
         return self.request_choice(
-            "Selecciona tu OneDrive",
-            "Microsoft ha devuelto varias unidades. Elige la que quieres montar con esta aplicación.",
+            tr("Selecciona tu OneDrive", "Select your OneDrive"),
+            tr("Microsoft ha devuelto varias unidades. Elige la que quieres montar con esta aplicación.", "Microsoft returned multiple drives. Choose the one you want to mount with this application."),
             choices,
         )
 
@@ -506,8 +509,8 @@ class OneDriveSetup(Gtk.Window):
         if not choices:
             return str(option.get("Default", "") or "")
         return self.request_choice(
-            str(option.get("Name", "Configuración")),
-            str(option.get("Help", "Elige una opción para continuar.")),
+            str(option.get("Name", tr("Configuración", "Configuration"))),
+            str(option.get("Help", tr("Elige una opción para continuar.", "Choose an option to continue."))),
             choices,
         )
 
@@ -516,11 +519,11 @@ class OneDriveSetup(Gtk.Window):
         holder: dict[str, str | None] = {"value": None}
 
         def show_dialog() -> bool:
-            dialog = Gtk.Dialog(title="Configuración de OneDrive", transient_for=self, modal=True)
+            dialog = Gtk.Dialog(title=tr("Configuración de OneDrive", "OneDrive setup"), transient_for=self, modal=True)
             dialog.set_default_size(520, 220)
             dialog.set_resizable(True)
-            dialog.add_button("Cancelar", Gtk.ResponseType.CANCEL)
-            dialog.add_button("Continuar", Gtk.ResponseType.OK)
+            dialog.add_button(tr("Cancelar", "Cancel"), Gtk.ResponseType.CANCEL)
+            dialog.add_button(tr("Continuar", "Continue"), Gtk.ResponseType.OK)
             box = dialog.get_content_area()
             box.set_spacing(10)
             help_label = Gtk.Label(label=str(option.get("Help", "")))
@@ -557,8 +560,8 @@ class OneDriveSetup(Gtk.Window):
             dialog = Gtk.Dialog(title=title, transient_for=self, modal=True)
             dialog.set_default_size(520, 220)
             dialog.set_resizable(True)
-            dialog.add_button("Cancelar", Gtk.ResponseType.CANCEL)
-            dialog.add_button("Continuar", Gtk.ResponseType.OK)
+            dialog.add_button(tr("Cancelar", "Cancel"), Gtk.ResponseType.CANCEL)
+            dialog.add_button(tr("Continuar", "Continue"), Gtk.ResponseType.OK)
             box = dialog.get_content_area()
             box.set_spacing(10)
             label = Gtk.Label(label=message)
@@ -606,12 +609,11 @@ class OneDriveSetup(Gtk.Window):
         label.set_xalign(0)
         label.set_line_wrap(True)
         label.set_markup(
-            "<span size='large' weight='bold'>✓ OneDrive está configurado</span>\n\n"
-            "La cuenta se ha guardado en rclone y la aplicación ya puede utilizarla."
+            tr("<span size='large' weight='bold'>✓ OneDrive está configurado</span>\n\nLa cuenta se ha guardado en rclone y la aplicación ya puede utilizarla.", "<span size='large' weight='bold'>✓ OneDrive is configured</span>\n\nThe account has been saved in rclone and the application can now use it.")
         )
         self.content.pack_start(label, True, True, 0)
 
-        finish_label = "Finalizar y abrir OneDrive" if self.resume_mount else "Finalizar"
+        finish_label = tr("Finalizar y abrir OneDrive", "Finish and open OneDrive") if self.resume_mount else tr("Finalizar", "Finish")
         self.buttons.pack_start(
             self.make_button(finish_label, lambda *_: self.launch_mount_and_exit() if self.resume_mount else Gtk.main_quit(), suggested=True),
             False,
@@ -630,14 +632,14 @@ class OneDriveSetup(Gtk.Window):
         label = Gtk.Label()
         label.set_xalign(0)
         label.set_line_wrap(True)
-        label.set_markup("<b>No se pudo completar la configuración de OneDrive.</b>")
+        label.set_markup(tr("<b>No se pudo completar la configuración de OneDrive.</b>", "<b>OneDrive setup could not be completed.</b>"))
         detail = Gtk.Label(label=message)
         detail.set_xalign(0)
         detail.set_line_wrap(True)
         self.content.pack_start(label, False, False, 0)
         self.content.pack_start(detail, False, False, 0)
-        self.buttons.pack_start(self.make_button("Cerrar", lambda *_: Gtk.main_quit()), False, False, 0)
-        self.buttons.pack_start(self.make_button("Reintentar", lambda *_: self.show_initial_state(), suggested=True), False, False, 0)
+        self.buttons.pack_start(self.make_button(tr("Cerrar", "Close"), lambda *_: Gtk.main_quit()), False, False, 0)
+        self.buttons.pack_start(self.make_button(tr("Reintentar", "Retry"), lambda *_: self.show_initial_state(), suggested=True), False, False, 0)
         self.show_all()
         return False
 
@@ -645,7 +647,7 @@ class OneDriveSetup(Gtk.Window):
         self.worker_running = False
         self.set_busy(False)
         self.show_initial_state()
-        self.set_status("Configuración cancelada. No se ha guardado una cuenta nueva.")
+        self.set_status(tr("Configuración cancelada. No se ha guardado una cuenta nueva.", "Setup cancelled. No new account was saved."))
         return False
 
     def launch_mount_and_exit(self) -> bool:
