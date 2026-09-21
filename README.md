@@ -1,175 +1,104 @@
-# OneDrive for Linux Desktop — rclone tray client for Ubuntu, SteamOS, Arch, Fedora and openSUSE
+# OneDrive Rclone
 
-[Versión en español](README_ES.md)
+Indicador GTK/Ayatana para montar OneDrive mediante `rclone`, conservando el funcionamiento original del proyecto y añadiendo portabilidad entre distribuciones Linux y un asistente gráfico de primera configuración.
 
-A lightweight **OneDrive desktop client for Linux** built around **rclone**, with a system tray indicator, mount/unmount control, transfer progress, cache tools and first-run setup. It keeps OneDrive mounted as a normal folder while providing a desktop experience similar to a native sync client.
+## Funcionamiento
 
-This project is designed for **Ubuntu, Debian, SteamOS / Steam Deck, Arch Linux, Fedora, openSUSE and other desktop Linux distributions**.
+Al abrir el lanzador **OneDrive**:
 
-## Features
+1. Se comprueba si `rclone` está disponible y si existe un remoto OneDrive válido.
+2. Si falta la configuración, se abre el asistente gráfico de primera ejecución.
+3. Cuando la cuenta está configurada, se ejecuta el mismo montaje usado por el programa original.
+4. Se abre `~/OneDrive` y se inicia el indicador del tray.
 
-- Mounts Microsoft OneDrive with `rclone mount`.
-- One-click launcher shown as **OneDrive** in the application menu.
-- System tray indicator with live connection state.
-- Tray icon states for online / idle, synchronizing, and disconnected / rclone RC unavailable.
-- Open the local OneDrive folder from the tray.
-- Open OneDrive on the web and the OneDrive recycle bin.
-- Show active transfer progress as a notification or GTK progress window.
-- View and clear the local rclone cache.
-- Automatic cache-size warning.
-- Clean exit: unmounts OneDrive, stops the matching `rclone mount` process and closes the tray indicator.
-- First-run helper for installing and configuring rclone.
-- Automatic Linux distribution detection.
-- Distribution-specific dependency installers.
-- SteamOS-friendly rclone installation.
-- Automatic detection of existing rclone remotes using the `onedrive` backend.
+El montaje conserva los parámetros del proyecto original, incluidos `--vfs-cache-mode full`, `--dir-cache-time 5m`, `--poll-interval 1m`, `--allow-non-empty`, `--vfs-cache-max-size 150G`, `--vfs-cache-max-age 720h` y el servidor RC utilizado por el indicador.
 
-## Supported Linux distributions
+## Instalación
 
-The installer includes dedicated profiles for:
-
-- Ubuntu and Debian-based distributions (`apt`)
-- Arch Linux and derivatives (`pacman`)
-- Fedora / RHEL-family systems (`dnf`)
-- openSUSE (`zypper`)
-- SteamOS / Steam Deck
-- Generic Linux fallback
-
-The application uses GTK 3 with Ayatana AppIndicator when available, and falls back to AppIndicator3 on compatible distributions.
-
-## How it works
-
-The launcher runs `bin/montar_onedrive.sh`. If rclone and a OneDrive remote are already configured, the script preserves the normal workflow and mounts OneDrive using the project defaults.
-
-The mount uses rclone VFS cache mode and enables the rclone Remote Control API so the tray indicator can display transfer state and progress.
-
-Default mount options include:
-
-```text
---rc
---rc-no-auth
---vfs-cache-mode full
---dir-cache-time 5m
---poll-interval 1m
---allow-non-empty
---volname OneDrive
---vfs-cache-max-size 150G
---vfs-cache-max-age 720h
-```
-
-If rclone is missing or no OneDrive remote is configured, the setup helper starts before the normal launcher continues.
-
-## Installation
-
-Clone or download the repository, then run:
+Ejecuta:
 
 ```bash
-chmod +x install.sh
-./install.sh
+bash install.sh
 ```
 
-The installer detects the current distribution, offers to install the required dependencies and installs the application in user-local directories.
+El instalador detecta la familia de distribución y prepara las dependencias:
 
-Main installation paths:
+- Debian, Ubuntu y derivadas: `apt`
+- Arch, Manjaro y derivadas: `pacman`
+- SteamOS: `rclone` portátil en `~/.local/bin` y comprobación de dependencias GTK/Ayatana
+- Fedora y derivadas: `dnf`
+- openSUSE: `zypper`
+- Otras distribuciones: instalación portátil de `rclone` y comprobación de dependencias
 
-```text
-~/.local/share/onedrive-rclone
-~/.local/bin/montar_onedrive.sh
-~/.local/share/applications/montar_onedrive.desktop
-```
+La instalación **no configura la cuenta de OneDrive**. Esa configuración solo aparece cuando el usuario abre el icono **OneDrive** por primera vez y no existe un remoto válido.
 
-After installation, launch **OneDrive** from your desktop application menu.
+Archivos instalados principalmente en:
 
-## First-time rclone configuration
+- `~/.local/share/onedrive-rclone`
+- `~/.local/bin/montar_onedrive.sh`
+- `~/.local/share/applications/montar_onedrive.desktop`
 
-If rclone is not installed or OneDrive has not been configured yet, the application starts its setup helper. It detects the Linux distribution, installs rclone when required, detects existing `rclone` remotes using `type = onedrive`, lets you choose the remote if more than one exists, stores the selected remote name, and returns to the regular OneDrive launcher.
+## Asistente gráfico de primera configuración
 
-Microsoft account authorization is handled by rclone through the normal browser-based OAuth flow.
+El asistente usa el protocolo no interactivo de configuración de rclone para evitar exponer la terminal. Mantiene ocultas y predefinidas las opciones normales:
 
-## Steam Deck / SteamOS
+- remoto nuevo con nombre `onedrive` (o `onedrive-2`, etc. si el nombre ya existe)
+- backend `onedrive`
+- `client_id` vacío
+- `client_secret` vacío
+- región `global` por defecto
+- `tenant` vacío
+- configuración avanzada desactivada
+- autenticación mediante navegador local
+- tipo de conexión `OneDrive Personal or Business`
 
-The project includes a SteamOS-specific installer. When possible, rclone is installed in the user's local environment instead of relying on permanent changes to SteamOS's read-only system image.
+El usuario normalmente solo tiene que:
 
-Run the installer from **Desktop Mode**:
+1. Pulsar **Conectar cuenta Microsoft**.
+2. Iniciar sesión y autorizar rclone en el navegador.
+3. Elegir una unidad únicamente si no se puede identificar de forma inequívoca `OneDrive (personal)`.
+4. Pulsar **Finalizar y abrir OneDrive**.
+
+Los tokens OAuth los gestiona y almacena directamente rclone en su propia configuración. La aplicación no los muestra ni los copia a sus archivos de configuración.
+
+Si ya existe un único remoto de tipo OneDrive, se utiliza directamente. Si existen varios, el asistente muestra una selección gráfica.
+
+## Menú del indicador
+
+El menú conserva las opciones del programa original:
+
+- **Abrir carpeta OneDrive**: abre el punto de montaje.
+- **Ver OneDrive en línea**: abre OneDrive web.
+- **Papelera de reciclaje**: abre la papelera web de OneDrive.
+- **Caché > Limpiar caché OneDrive**: borra el contenido de la caché de rclone.
+- **Caché > Tamaño de la caché**: muestra cuánto ocupa la caché.
+- **Ver progreso > Notificación**: muestra las transferencias actuales mediante notificación.
+- **Ver progreso > Barra de Progreso**: abre la ventana gráfica de progreso.
+- **Salir**: desmonta OneDrive, detiene el `rclone mount` correspondiente y cierra el indicador.
+
+## Estados del icono del tray
+
+El indicador comprueba periódicamente el estado sin cambiar el resto del funcionamiento:
+
+- icono conectado: OneDrive montado, rclone responde y Microsoft/OneDrive está accesible, sin transferencias activas;
+- icono de sincronización: existen transferencias activas;
+- icono de advertencia: el montaje se ha perdido, el RC de rclone no responde o el remoto de OneDrive ya no es accesible.
+
+## Configuración opcional
+
+Variables compatibles:
+
+- `ONEDRIVE_REMOTE`: remoto de rclone.
+- `ONEDRIVE_MOUNTPOINT`: punto de montaje, por defecto `~/OneDrive`.
+- `ONEDRIVE_CACHE_DIR`: caché de rclone, por defecto `~/.cache/rclone`.
+- `ONEDRIVE_RC_URL`: URL del servidor RC, por defecto `http://localhost:5572/core/stats`.
+
+## Desinstalación
 
 ```bash
-chmod +x install.sh
-./install.sh
+bash ~/.local/share/onedrive-rclone/uninstall.sh
 ```
 
-Once installed, **OneDrive** appears in the application launcher.
+## Licencia
 
-## Tray menu
-
-- **Abrir carpeta OneDrive** — opens the mounted OneDrive folder.
-- **Ver OneDrive en línea** — opens OneDrive in the browser.
-- **Papelera de reciclaje** — opens the OneDrive web recycle bin.
-- **Caché** — clear the rclone cache or display its current size.
-- **Ver progreso** — show a transfer notification or GTK progress window with file, percentage, speed and ETA.
-- **Salir** — unmounts OneDrive, stops the matching rclone mount and closes the tray application.
-
-## Tray status icons
-
-- **OneDrive icon**: mounted, connected and idle.
-- **Synchronizing icon**: one or more transfers are active.
-- **Warning icon**: the mount is unavailable or the rclone RC endpoint is not responding.
-
-## Configuration
-
-Environment variables can override the defaults:
-
-```text
-ONEDRIVE_REMOTE
-ONEDRIVE_MOUNTPOINT
-ONEDRIVE_CACHE_DIR
-ONEDRIVE_LOGFILE
-ONEDRIVE_INDICATOR
-ONEDRIVE_RC_URL
-ONEDRIVE_CACHE_THRESHOLD
-ONEDRIVE_NOTIFY_INTERVAL
-```
-
-Defaults:
-
-```text
-Remote:      Onedrive:
-Mount point: ~/OneDrive
-Cache:       ~/.cache/rclone
-RC URL:      http://localhost:5572/core/stats
-```
-
-## Uninstall
-
-```bash
-~/.local/share/onedrive-rclone/uninstall.sh
-```
-
-## Project structure
-
-```text
-ONEDRIVE-Desktop/
-├── assets/
-├── bin/
-│   ├── montar_onedrive.sh
-│   └── setup_rclone.sh
-├── desktop/
-├── installers/
-├── src/
-│   └── onedrive_indicator.py
-├── install.sh
-├── uninstall.sh
-├── README.md
-└── README_ES.md
-```
-
-## Requirements
-
-Core runtime requirements are rclone, Python 3, GTK 3 / PyGObject, an AppIndicator implementation, `requests`, `xdg-open`, `notify-send` and FUSE utilities. The installer attempts to provide the correct packages for the detected distribution.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
-
-## Keywords
-
-OneDrive Linux, OneDrive Ubuntu, OneDrive Steam Deck, OneDrive SteamOS, OneDrive Arch Linux, OneDrive Fedora, OneDrive openSUSE, rclone OneDrive, Linux system tray OneDrive, OneDrive mount Linux, Microsoft OneDrive Linux desktop client.
+MIT. Ver [LICENSE](LICENSE).
