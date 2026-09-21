@@ -33,7 +33,7 @@ arch_to_rclone() {
 
 install_rclone_portable() {
   mkdir -p "$BIN_HOME"
-  local arch tmp url src
+  local arch tmp url zipdir src
   arch="$(arch_to_rclone)" || {
     warn "Arquitectura no soportada por el instalador portátil: $(uname -m)"
     return 1
