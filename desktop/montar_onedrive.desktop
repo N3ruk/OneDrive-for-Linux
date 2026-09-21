@@ -1,8 +1,6 @@
 [Desktop Entry]
 Name=OneDrive
 Comment=Mount OneDrive with rclone and show a tray indicator
-Comment[es]=Montar OneDrive con rclone y mostrar indicador
-Comment[en]=Mount OneDrive with rclone and show a tray indicator
 Exec=montar_onedrive.sh
 Icon=onedrive.png
 Terminal=false
