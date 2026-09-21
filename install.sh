@@ -128,12 +128,16 @@ install -Dm644 "$PROJECT_ROOT/assets/onedrive-tray-warning.png" "$INSTALL_DIR/on
 cp -a "$PROJECT_ROOT/installers/." "$INSTALL_DIR/installers/"
 chmod 755 "$INSTALL_DIR/installers/"*.sh
 
+if [ "$ONEDRIVE_LANG" = "en" ]; then
+  DESKTOP_COMMENT="Mount OneDrive with rclone and show a tray indicator"
+else
+  DESKTOP_COMMENT="Montar OneDrive con rclone y mostrar indicador"
+fi
+
 cat > "$DESKTOP_DIR/montar_onedrive.desktop" <<EOF2
 [Desktop Entry]
 Name=$APP_TITLE
-Comment=Mount OneDrive with rclone and show a tray indicator
-Comment[es]=Montar OneDrive con rclone y mostrar indicador
-Comment[en]=Mount OneDrive with rclone and show a tray indicator
+Comment=$DESKTOP_COMMENT
 Exec=$BIN_DIR/montar_onedrive.sh
 Icon=$INSTALL_DIR/onedrive.png
 Terminal=false
@@ -152,6 +156,10 @@ chmod 755 "$INSTALL_DIR/uninstall.sh"
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database "$DESKTOP_DIR" >/dev/null 2>&1 || true
 fi
+
+# If this is an upgrade/reinstall, close only the old tray process so the next
+# OneDrive launch reloads the language chosen above. This does not unmount rclone.
+pkill -f "$INSTALL_DIR/onedrive_indicator.py" >/dev/null 2>&1 || true
 
 echo
 say "Instalado en:" "Installed in:"
