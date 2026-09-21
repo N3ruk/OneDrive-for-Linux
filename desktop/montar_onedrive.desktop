@@ -1,6 +1,6 @@
 [Desktop Entry]
-Name=OneDrive Rclone GNOME
-Comment=Montar OneDrive con rclone y mostrar indicador en GNOME
+Name=OneDrive
+Comment=Montar OneDrive con rclone y mostrar indicador
 Exec=montar_onedrive.sh
 Icon=onedrive.png
 Terminal=false
