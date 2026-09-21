@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -24,15 +26,25 @@ except (ValueError, ImportError):
 
 APP_NAME = "onedrive-rclone"
 BASE_DIR = Path(os.environ.get("ONEDRIVE_ASSET_DIR", Path(__file__).resolve().parent))
+CONFIG_HOME = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+SETTINGS_FILE = CONFIG_HOME / APP_NAME / "settings.env"
 MOUNTPOINT = Path(os.environ.get("ONEDRIVE_MOUNTPOINT", Path.home() / "OneDrive"))
-ICON_ONEDRIVE = str(BASE_DIR / "onedrive1.png")
-ICON_WARNING = "dialog-warning"
-ICON_SYNCING = os.environ.get("ONEDRIVE_SYNCING_ICON", "emblem-synchronizing")
+
+# Iconos de estado diseñados para esta aplicación. Solo cambia el icono; el
+# funcionamiento, el menú y las acciones del indicador original se mantienen.
+ICON_ONLINE = str(BASE_DIR / "onedrive-tray-online.png")
+ICON_SYNCING = str(BASE_DIR / "onedrive-tray-syncing.png")
+ICON_WARNING = str(BASE_DIR / "onedrive-tray-warning.png")
+ICON_FALLBACK = str(BASE_DIR / "onedrive1.png")
+
 CACHE_DIR = Path(os.environ.get("ONEDRIVE_CACHE_DIR", Path.home() / ".cache/rclone"))
 CACHE_THRESHOLD = int(os.environ.get("ONEDRIVE_CACHE_THRESHOLD", str(125 * 1024 * 1024 * 1024)))
 NOTIFY_INTERVAL = int(os.environ.get("ONEDRIVE_NOTIFY_INTERVAL", str(12 * 60 * 60)))
 RC_URL = os.environ.get("ONEDRIVE_RC_URL", "http://localhost:5572/core/stats")
+RC_BASE = os.environ.get("ONEDRIVE_RC_BASE", RC_URL.rsplit("/core/stats", 1)[0]).rstrip("/")
+STATUS_INTERVAL = int(os.environ.get("ONEDRIVE_STATUS_INTERVAL", "10"))
 last_notify_time = 0.0
+_status_worker_running = False
 
 
 def run_output(args: list[str]) -> subprocess.CompletedProcess[str]:
@@ -55,7 +67,8 @@ class ProgressWindow(Gtk.Window):
         super().__init__(title="Progreso OneDrive")
         self.set_default_size(500, 200)
         self.set_border_width(10)
-
+        
+        # En Gtk 3 usamos un contenedor scrolleable por si hay muchas transferencias
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         self.add(scrolled)
@@ -72,7 +85,8 @@ class ProgressWindow(Gtk.Window):
             if response.status_code == 200 and response.text.strip():
                 stats = response.json()
                 transfers = stats.get("transferring", [])
-
+                
+                # Limpiar hijos actuales de forma segura en Gtk3
                 for child in self.box.get_children():
                     self.box.remove(child)
 
@@ -119,30 +133,92 @@ def check_mount() -> bool:
     return result.returncode == 0
 
 
-def update_icon() -> bool:
-    """Actualiza solo el estado visual del tray sin cambiar el resto del programa.
+def configured_remote() -> str:
+    """Obtiene el remoto usado por el lanzador sin ejecutar el fichero de configuración."""
+    remote = os.environ.get("ONEDRIVE_REMOTE", "").strip()
+    if not remote and SETTINGS_FILE.is_file():
+        try:
+            for line in SETTINGS_FILE.read_text(encoding="utf-8").splitlines():
+                if not line.startswith("ONEDRIVE_REMOTE="):
+                    continue
+                raw = line.split("=", 1)[1].strip()
+                parts = shlex.split(raw)
+                if parts:
+                    remote = parts[0]
+                break
+        except Exception:
+            pass
+    if not remote:
+        remote = "Onedrive:"
+    return remote if remote.endswith(":") else f"{remote}:"
 
-    - warning: montaje desconectado / RC no responde
-    - syncing: hay transferencias activas
-    - OneDrive: montado y sin transferencias activas
-    """
+
+def _existing_icon(path: str, fallback: str = "dialog-warning") -> str:
+    return path if Path(path).is_file() else fallback
+
+
+def _apply_status_icon(state: str) -> bool:
+    if state == "syncing":
+        icon = _existing_icon(ICON_SYNCING, ICON_FALLBACK)
+        description = "OneDrive sincronizando"
+    elif state == "online":
+        icon = _existing_icon(ICON_ONLINE, ICON_FALLBACK)
+        description = "OneDrive conectado"
+    else:
+        icon = _existing_icon(ICON_WARNING, "dialog-warning")
+        description = "OneDrive sin conexión"
+    indicator.set_icon_full(icon, description)
+    return False
+
+
+def _detect_status() -> str:
+    # 1) Sin montaje no hay una sesión funcional de OneDrive.
     if not check_mount():
-        indicator.set_icon_full(ICON_WARNING, ICON_WARNING)
-        return True
+        return "warning"
 
+    # 2) core/stats confirma que el rclone que montó OneDrive sigue vivo y nos
+    #    permite detectar transferencias activas sin alterar el montaje.
     try:
         response = requests.post(RC_URL, timeout=2)
         if response.status_code != 200 or not response.text.strip():
-            indicator.set_icon_full(ICON_WARNING, ICON_WARNING)
-            return True
-
+            return "warning"
         transfers = response.json().get("transferring", [])
         if transfers:
-            indicator.set_icon_full(ICON_SYNCING, ICON_SYNCING)
-        else:
-            indicator.set_icon_full(ICON_ONEDRIVE, ICON_ONEDRIVE)
+            return "syncing"
     except Exception:
-        indicator.set_icon_full(ICON_WARNING, ICON_WARNING)
+        return "warning"
+
+    # 3) Estar montado y tener RC activo no garantiza que Internet/Microsoft
+    #    sigan accesibles. operations/about hace una comprobación real contra
+    #    el remoto de OneDrive sin transferir archivos.
+    try:
+        response = requests.post(
+            f"{RC_BASE}/operations/about",
+            json={"fs": configured_remote()},
+            timeout=4,
+        )
+        if response.status_code == 200:
+            return "online"
+    except Exception:
+        pass
+    return "warning"
+
+
+def _status_worker() -> None:
+    global _status_worker_running
+    try:
+        state = _detect_status()
+        GLib.idle_add(_apply_status_icon, state)
+    finally:
+        _status_worker_running = False
+
+
+def update_icon() -> bool:
+    """Actualiza el icono en segundo plano para no bloquear el menú del tray."""
+    global _status_worker_running
+    if not _status_worker_running:
+        _status_worker_running = True
+        threading.Thread(target=_status_worker, daemon=True).start()
     return True
 
 
@@ -176,7 +252,7 @@ def unmount_mountpoint() -> bool:
 
     command = fusermount_command()
     for _attempt in range(3):
-        subprocess.run(
+        result = subprocess.run(
             [command, "-u", str(MOUNTPOINT)],
             capture_output=True,
             text=True,
@@ -186,6 +262,7 @@ def unmount_mountpoint() -> bool:
             return True
         time.sleep(1)
 
+    # Permite liberar el punto de montaje aunque Nautilus conserve un descriptor.
     subprocess.run([command, "-uz", str(MOUNTPOINT)], check=False)
     for _attempt in range(5):
         if not check_mount():
@@ -287,7 +364,7 @@ def open_onedrive_recycle_bin(_item) -> None:
 
 indicator = AppIndicator3.Indicator.new(
     "onedrive-status",
-    ICON_ONEDRIVE,
+    _existing_icon(ICON_ONLINE, ICON_FALLBACK),
     AppIndicator3.IndicatorCategory.APPLICATION_STATUS,
 )
 indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
@@ -342,7 +419,7 @@ menu.show_all()
 indicator.set_menu(menu)
 
 update_icon()
-GLib.timeout_add_seconds(10, update_icon)
+GLib.timeout_add_seconds(STATUS_INTERVAL, update_icon)
 GLib.timeout_add_seconds(3600, check_cache_threshold)
 
 Gtk.main()
