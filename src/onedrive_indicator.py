@@ -24,6 +24,8 @@ except (ValueError, ImportError):
     gi.require_version("Gtk", "3.0")
     from gi.repository import AppIndicator3, Gtk, GLib
 
+from i18n import tr
+
 APP_NAME = "onedrive-rclone"
 BASE_DIR = Path(os.environ.get("ONEDRIVE_ASSET_DIR", Path(__file__).resolve().parent))
 CONFIG_HOME = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
@@ -64,7 +66,7 @@ def fusermount_command() -> str:
 
 class ProgressWindow(Gtk.Window):
     def __init__(self) -> None:
-        super().__init__(title="Progreso OneDrive")
+        super().__init__(title=tr("Progreso OneDrive", "OneDrive progress"))
         self.set_default_size(500, 200)
         self.set_border_width(10)
         
@@ -91,15 +93,15 @@ class ProgressWindow(Gtk.Window):
                     self.box.remove(child)
 
                 if not transfers:
-                    label = Gtk.Label(label="No hay transferencias activas en este momento.")
+                    label = Gtk.Label(label=tr("No hay transferencias activas en este momento.", "There are no active transfers right now."))
                     self.box.pack_start(label, True, True, 0)
                 else:
                     for transfer in transfers:
-                        name = transfer.get("name", "archivo")
+                        name = transfer.get("name", tr("archivo", "file"))
                         pct = transfer.get("percentage", 0) / 100.0
                         speed_mb = round(transfer.get("speed", 0) / (1024**2), 2)
                         eta = transfer.get("eta", 0)
-                        label = Gtk.Label(label=f"{name}\nVel: {speed_mb} MB/s | ETA: {eta}s")
+                        label = Gtk.Label(label=tr(f"{name}\nVel: {speed_mb} MB/s | ETA: {eta}s", f"{name}\nSpeed: {speed_mb} MB/s | ETA: {eta}s"))
                         bar = Gtk.ProgressBar()
                         bar.set_fraction(pct)
                         bar.set_text(f"{int(pct * 100)}%")
@@ -110,11 +112,11 @@ class ProgressWindow(Gtk.Window):
         except requests.exceptions.ConnectionError:
             for child in self.box.get_children():
                 self.box.remove(child)
-            label = Gtk.Label(label="⚠️ rclone RC no está activo (falta parámetro --rc al montar)")
+            label = Gtk.Label(label=tr("⚠️ rclone RC no está activo (falta parámetro --rc al montar)", "⚠️ rclone RC is not active (the mount is missing the --rc parameter)"))
             self.box.pack_start(label, True, True, 0)
             self.show_all()
         except Exception as exc:
-            print("Error consultando progreso:", exc)
+            print(tr("Error consultando progreso:", "Error checking progress:"), exc)
         return True
 
     def on_destroy(self, *_args) -> None:
@@ -160,13 +162,13 @@ def _existing_icon(path: str, fallback: str = "dialog-warning") -> str:
 def _apply_status_icon(state: str) -> bool:
     if state == "syncing":
         icon = _existing_icon(ICON_SYNCING, ICON_FALLBACK)
-        description = "OneDrive sincronizando"
+        description = tr("OneDrive sincronizando", "OneDrive syncing")
     elif state == "online":
         icon = _existing_icon(ICON_ONLINE, ICON_FALLBACK)
-        description = "OneDrive conectado"
+        description = tr("OneDrive conectado", "OneDrive connected")
     else:
         icon = _existing_icon(ICON_WARNING, "dialog-warning")
-        description = "OneDrive sin conexión"
+        description = tr("OneDrive sin conexión", "OneDrive offline")
     indicator.set_icon_full(icon, description)
     return False
 
@@ -275,7 +277,7 @@ def unmount(_item) -> None:
     if not unmount_mountpoint():
         notify(
             "OneDrive",
-            "No se pudo desmontar la unidad; puede estar siendo usada por Nautilus u otra aplicación.",
+            tr("No se pudo desmontar la unidad; puede estar siendo usada por Nautilus u otra aplicación.", "The drive could not be unmounted; it may be in use by Nautilus or another application."),
         )
         return
 
@@ -285,7 +287,7 @@ def unmount(_item) -> None:
 
 def clean_cache(_item) -> None:
     if not CACHE_DIR.is_dir():
-        notify("OneDrive", "No existe la carpeta de caché")
+        notify("OneDrive", tr("No existe la carpeta de caché", "The cache folder does not exist"))
         return
 
     for entry in CACHE_DIR.iterdir():
@@ -295,17 +297,17 @@ def clean_cache(_item) -> None:
             else:
                 entry.unlink()
         except Exception as exc:
-            subprocess.Popen(["notify-send", "OneDrive", f"Error limpiando: {entry.name} ({exc})"])
-    notify("OneDrive", "Caché de rclone limpiada")
+            subprocess.Popen(["notify-send", "OneDrive", tr(f"Error limpiando: {entry.name} ({exc})", f"Error cleaning: {entry.name} ({exc})")])
+    notify("OneDrive", tr("Caché de rclone limpiada", "rclone cache cleared"))
 
 
 def cache_size(_item) -> None:
     if CACHE_DIR.is_dir():
         result = run_output(["du", "-sh", str(CACHE_DIR)])
         size = result.stdout.split()[0] if result.stdout else "0"
-        notify("OneDrive", f"Tamaño de la caché: {size}")
+        notify("OneDrive", tr(f"Tamaño de la caché: {size}", f"Cache size: {size}"))
     else:
-        notify("OneDrive", "No existe la carpeta de caché")
+        notify("OneDrive", tr("No existe la carpeta de caché", "The cache folder does not exist"))
 
 
 def check_cache_threshold() -> bool:
@@ -317,7 +319,7 @@ def check_cache_threshold() -> bool:
             now = time.time()
             if now - last_notify_time >= NOTIFY_INTERVAL:
                 gb_used = round(used_bytes / (1024**3), 2)
-                notify("OneDrive", f"⚠️ Caché supera {gb_used} GB (límite 125 GB)")
+                notify("OneDrive", tr(f"⚠️ Caché supera {gb_used} GB (límite 125 GB)", f"⚠️ Cache exceeds {gb_used} GB (125 GB limit)"))
                 last_notify_time = now
     except Exception:
         pass
@@ -333,24 +335,24 @@ def check_progress_notification(_item) -> bool:
             if transfers:
                 msgs = []
                 for transfer in transfers:
-                    name = transfer.get("name", "archivo")
+                    name = transfer.get("name", tr("archivo", "file"))
                     pct = transfer.get("percentage", 0)
                     done_mb = round(transfer.get("bytes", 0) / (1024**2), 2)
                     size_mb = round(transfer.get("size", 0) / (1024**2), 2)
                     speed_mb = round(transfer.get("speed", 0) / (1024**2), 2)
                     eta = transfer.get("eta", 0)
                     msgs.append(
-                        f"{name}\n{pct}% ({done_mb}/{size_mb} MB) Vel: {speed_mb} MB/s ETA: {eta}s"
+                        tr(f"{name}\n{pct}% ({done_mb}/{size_mb} MB) Vel: {speed_mb} MB/s ETA: {eta}s", f"{name}\n{pct}% ({done_mb}/{size_mb} MB) Speed: {speed_mb} MB/s ETA: {eta}s")
                     )
                 notify("OneDrive", "\n\n".join(msgs))
             else:
-                notify("OneDrive", "Sin transferencias activas")
+                notify("OneDrive", tr("Sin transferencias activas", "No active transfers"))
         else:
-            notify("OneDrive", "Sin transferencias activas")
+            notify("OneDrive", tr("Sin transferencias activas", "No active transfers"))
     except requests.exceptions.ConnectionError:
-        notify("OneDrive", "⚠️ rclone RC no está activo (falta parámetro --rc al montar)")
+        notify("OneDrive", tr("⚠️ rclone RC no está activo (falta parámetro --rc al montar)", "⚠️ rclone RC is not active (the mount is missing the --rc parameter)"))
     except Exception as exc:
-        notify("OneDrive", f"Error consultando progreso: {exc}")
+        notify("OneDrive", tr(f"Error consultando progreso: {exc}", f"Error checking progress: {exc}"))
     return True
 
 
@@ -371,47 +373,47 @@ indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
 
 menu = Gtk.Menu()
 
-open_item = Gtk.MenuItem(label="Abrir carpeta OneDrive")
+open_item = Gtk.MenuItem(label=tr("Abrir carpeta OneDrive", "Open OneDrive folder"))
 open_item.connect("activate", open_folder)
 menu.append(open_item)
 
-online_item = Gtk.MenuItem(label="Ver OneDrive en línea")
+online_item = Gtk.MenuItem(label=tr("Ver OneDrive en línea", "View OneDrive online"))
 online_item.connect("activate", open_onedrive_online)
 menu.append(online_item)
 
-recycle_item = Gtk.MenuItem(label="Papelera de reciclaje")
+recycle_item = Gtk.MenuItem(label=tr("Papelera de reciclaje", "Recycle bin"))
 recycle_item.connect("activate", open_onedrive_recycle_bin)
 menu.append(recycle_item)
 
 cache_menu = Gtk.Menu()
-clean_item = Gtk.MenuItem(label="Limpiar caché OneDrive")
+clean_item = Gtk.MenuItem(label=tr("Limpiar caché OneDrive", "Clear OneDrive cache"))
 clean_item.connect("activate", clean_cache)
 cache_menu.append(clean_item)
 
-size_item = Gtk.MenuItem(label="Tamaño de la caché")
+size_item = Gtk.MenuItem(label=tr("Tamaño de la caché", "Cache size"))
 size_item.connect("activate", cache_size)
 cache_menu.append(size_item)
 cache_menu.show_all()
 
-cache_root = Gtk.MenuItem(label="Caché")
+cache_root = Gtk.MenuItem(label=tr("Caché", "Cache"))
 cache_root.set_submenu(cache_menu)
 menu.append(cache_root)
 
 progress_menu = Gtk.Menu()
-notif_item = Gtk.MenuItem(label="Notificación")
+notif_item = Gtk.MenuItem(label=tr("Notificación", "Notification"))
 notif_item.connect("activate", check_progress_notification)
 progress_menu.append(notif_item)
 
-bar_item = Gtk.MenuItem(label="Barra de Progreso")
+bar_item = Gtk.MenuItem(label=tr("Barra de Progreso", "Progress bar"))
 bar_item.connect("activate", show_progress_window)
 progress_menu.append(bar_item)
 progress_menu.show_all()
 
-progress_root = Gtk.MenuItem(label="Ver progreso")
+progress_root = Gtk.MenuItem(label=tr("Ver progreso", "View progress"))
 progress_root.set_submenu(progress_menu)
 menu.append(progress_root)
 
-unmount_item = Gtk.MenuItem(label="Salir")
+unmount_item = Gtk.MenuItem(label=tr("Salir", "Exit"))
 unmount_item.connect("activate", unmount)
 menu.append(unmount_item)
 
