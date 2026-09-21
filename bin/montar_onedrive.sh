@@ -7,6 +7,8 @@ SETTINGS_FILE="$CONFIG_HOME/$APP_NAME/settings.env"
 BIN_HOME="${XDG_BIN_HOME:-$HOME/.local/bin}"
 SETUP_SCRIPT="${ONEDRIVE_SETUP_SCRIPT:-$HOME/.local/share/$APP_NAME/setup_rclone.sh}"
 
+# Conserva las variables definidas por el usuario. Solo usa la selección guardada
+# por el asistente cuando ONEDRIVE_REMOTE no se ha definido externamente.
 if [ -z "${ONEDRIVE_REMOTE+x}" ] && [ -r "$SETTINGS_FILE" ]; then
   # shellcheck disable=SC1090
   . "$SETTINGS_FILE"
@@ -23,9 +25,13 @@ INDICATOR="${ONEDRIVE_INDICATOR:-$HOME/.local/share/$APP_NAME/onedrive_indicator
 remote_is_configured() {
   command -v rclone >/dev/null 2>&1 || return 1
   rclone config show "${REMOTE_NAME%:}" >/dev/null 2>&1 || return 1
-  rclone config show "${REMOTE_NAME%:}" 2>/dev/null |     grep -Eq '^[[:space:]]*type[[:space:]]*=[[:space:]]*onedrive[[:space:]]*$'
+  rclone config show "${REMOTE_NAME%:}" 2>/dev/null | \
+    grep -Eq '^[[:space:]]*type[[:space:]]*=[[:space:]]*onedrive[[:space:]]*$'
 }
 
+# Único añadido al flujo original: si falta rclone o el remoto OneDrive,
+# se abre el asistente. Después de configurarlo, el propio asistente reanuda
+# este mismo lanzador con ONEDRIVE_SKIP_SETUP=1.
 if [ "${ONEDRIVE_SKIP_SETUP:-0}" != "1" ]; then
   if ! command -v rclone >/dev/null 2>&1 || ! remote_is_configured; then
     if [ -x "$SETUP_SCRIPT" ]; then
@@ -42,7 +48,17 @@ mkdir -p "$MOUNTPOINT" "$(dirname "$LOGFILE")" "$CACHE_DIR"
 if mountpoint -q "$MOUNTPOINT"; then
   echo "OneDrive ya está montado en $MOUNTPOINT"
 else
-  nohup rclone mount "$REMOTE_NAME" "$MOUNTPOINT"     --rc     --rc-no-auth     --vfs-cache-mode full     --dir-cache-time 5m     --poll-interval 1m     --allow-non-empty     --volname "OneDrive"     --vfs-cache-max-size 150G     --vfs-cache-max-age 720h     >"$LOGFILE" 2>&1 &
+  nohup rclone mount "$REMOTE_NAME" "$MOUNTPOINT" \
+    --rc \
+    --rc-no-auth \
+    --vfs-cache-mode full \
+    --dir-cache-time 5m \
+    --poll-interval 1m \
+    --allow-non-empty \
+    --volname "OneDrive" \
+    --vfs-cache-max-size 150G \
+    --vfs-cache-max-age 720h \
+    >"$LOGFILE" 2>&1 &
 
   sleep 2
 
