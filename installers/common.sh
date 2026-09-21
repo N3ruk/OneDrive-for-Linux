@@ -3,9 +3,12 @@ set -euo pipefail
 
 APP_NAME="onedrive-rclone"
 BIN_HOME="${XDG_BIN_HOME:-$HOME/.local/bin}"
+ONEDRIVE_LANG="${ONEDRIVE_LANG:-es}"
 
+is_en() { [ "$ONEDRIVE_LANG" = "en" ]; }
+msg() { if is_en; then printf '%s\n' "$2"; else printf '%s\n' "$1"; fi; }
 log() { printf '%s\n' "$*"; }
-warn() { printf 'AVISO: %s\n' "$*" >&2; }
+warn() { if is_en; then printf 'WARNING: %s\n' "$2" >&2; else printf 'AVISO: %s\n' "$1" >&2; fi; }
 
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
 
@@ -15,7 +18,7 @@ sudo_cmd() {
   elif have_cmd sudo; then
     sudo "$@"
   else
-    warn "Se necesita sudo para instalar dependencias del sistema."
+    warn "Se necesita sudo para instalar dependencias del sistema." "sudo is required to install system dependencies."
     return 1
   fi
 }
@@ -33,15 +36,15 @@ arch_to_rclone() {
 
 install_rclone_portable() {
   mkdir -p "$BIN_HOME"
-  local arch tmp url zipdir src
+  local arch tmp url src
   arch="$(arch_to_rclone)" || {
-    warn "Arquitectura no soportada por el instalador portátil: $(uname -m)"
+    warn "Arquitectura no soportada por el instalador portátil: $(uname -m)" "Unsupported architecture for the portable installer: $(uname -m)"
     return 1
   }
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' RETURN
   url="https://downloads.rclone.org/rclone-current-linux-${arch}.zip"
-  log "Instalando rclone oficial en $BIN_HOME (arquitectura: $arch)..."
+  msg "Instalando rclone oficial en $BIN_HOME (arquitectura: $arch)..." "Installing official rclone in $BIN_HOME (architecture: $arch)..."
 
   if have_cmd curl; then
     curl -fL "$url" -o "$tmp/rclone.zip"
@@ -53,7 +56,7 @@ import sys, urllib.request
 urllib.request.urlretrieve(sys.argv[1], sys.argv[2])
 PY
   else
-    warn "Hace falta curl, wget o python3 para descargar rclone."
+    warn "Hace falta curl, wget o python3 para descargar rclone." "curl, wget or python3 is required to download rclone."
     return 1
   fi
 
@@ -66,7 +69,7 @@ with zipfile.ZipFile(sys.argv[1]) as z:
     z.extractall(sys.argv[2])
 PY
   else
-    warn "Hace falta unzip o python3 para extraer rclone."
+    warn "Hace falta unzip o python3 para extraer rclone." "unzip or python3 is required to extract rclone."
     return 1
   fi
 
@@ -74,9 +77,12 @@ PY
   if [ -z "$src" ]; then
     src="$(find "$tmp" -type f -name rclone | head -n1 || true)"
   fi
-  [ -n "$src" ] || { warn "No se encontró el binario rclone descargado."; return 1; }
+  if [ -z "$src" ]; then
+    warn "No se encontró el binario rclone descargado." "The downloaded rclone binary could not be found."
+    return 1
+  fi
   install -m755 "$src" "$BIN_HOME/rclone"
-  log "rclone instalado en $BIN_HOME/rclone"
+  msg "rclone instalado en $BIN_HOME/rclone" "rclone installed in $BIN_HOME/rclone"
 }
 
 python_indicator_check() {
@@ -94,7 +100,7 @@ try:
         except ValueError:
             pass
     if not ok_indicator:
-        raise RuntimeError("falta AyatanaAppIndicator3/AppIndicator3")
+        raise RuntimeError("missing AyatanaAppIndicator3/AppIndicator3")
     import requests
 except Exception as exc:
     print(exc, file=sys.stderr)
