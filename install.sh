@@ -69,9 +69,13 @@ mkdir -p "$INSTALL_DIR" "$BIN_DIR" "$DESKTOP_DIR" "$INSTALL_DIR/installers"
 install -Dm755 "$PROJECT_ROOT/bin/montar_onedrive.sh" "$BIN_DIR/montar_onedrive.sh"
 install -Dm755 "$PROJECT_ROOT/bin/setup_rclone.sh" "$INSTALL_DIR/setup_rclone.sh"
 install -Dm755 "$PROJECT_ROOT/src/onedrive_indicator.py" "$INSTALL_DIR/onedrive_indicator.py"
+install -Dm755 "$PROJECT_ROOT/src/setup_rclone_gui.py" "$INSTALL_DIR/setup_rclone_gui.py"
 install -Dm755 "$PROJECT_ROOT/uninstall.sh" "$INSTALL_DIR/uninstall.sh"
 install -Dm644 "$PROJECT_ROOT/assets/onedrive.png" "$INSTALL_DIR/onedrive.png"
 install -Dm644 "$PROJECT_ROOT/assets/onedrive1.png" "$INSTALL_DIR/onedrive1.png"
+install -Dm644 "$PROJECT_ROOT/assets/onedrive-tray-online.png" "$INSTALL_DIR/onedrive-tray-online.png"
+install -Dm644 "$PROJECT_ROOT/assets/onedrive-tray-syncing.png" "$INSTALL_DIR/onedrive-tray-syncing.png"
+install -Dm644 "$PROJECT_ROOT/assets/onedrive-tray-warning.png" "$INSTALL_DIR/onedrive-tray-warning.png"
 cp -a "$PROJECT_ROOT/installers/." "$INSTALL_DIR/installers/"
 chmod 755 "$INSTALL_DIR/installers/"*.sh
 
@@ -90,8 +94,10 @@ EOF2
 chmod 755 "$BIN_DIR/montar_onedrive.sh"
 chmod 755 "$INSTALL_DIR/setup_rclone.sh"
 chmod 755 "$INSTALL_DIR/onedrive_indicator.py"
+chmod 755 "$INSTALL_DIR/setup_rclone_gui.py"
 chmod 755 "$INSTALL_DIR/uninstall.sh"
 
+# Refresca el menú de aplicaciones cuando la herramienta está disponible.
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database "$DESKTOP_DIR" >/dev/null 2>&1 || true
 fi
@@ -105,15 +111,11 @@ echo "  $DESKTOP_DIR/montar_onedrive.desktop"
 echo
 
 export PATH="$BIN_DIR:$PATH"
-SETUP="$INSTALL_DIR/setup_rclone.sh"
-if ! command -v rclone >/dev/null 2>&1 || ! rclone listremotes 2>/dev/null | grep -q .; then
-  read -r -p "rclone todavía no está configurado. ¿Abrir ahora el asistente de OneDrive? [S/n]: " setup_answer
-  case "$setup_answer" in
-    n|N|no|NO)
-      echo "Se abrirá automáticamente la primera vez que ejecutes OneDrive." ;;
-    *) "$SETUP" --interactive ;;
-  esac
-fi
 
+echo
+echo "La configuración de la cuenta no se realiza durante la instalación."
+echo "La primera vez que abras OneDrive, si no existe un remoto OneDrive válido,"
+echo "se abrirá automáticamente el asistente gráfico de configuración."
+echo
 echo
 echo "Instalación terminada. El lanzador aparecerá como: OneDrive"
