@@ -10,15 +10,24 @@ from pathlib import Path
 import gi
 import requests
 
-gi.require_version("AyatanaAppIndicator3", "0.1")
-gi.require_version("Gtk", "3.0")
-from gi.repository import AyatanaAppIndicator3 as AppIndicator3, Gtk, GLib
+# Ayatana es la opción preferida (Ubuntu/Debian/Fedora/Arch).
+# AppIndicator3 se mantiene como fallback para distribuciones donde Ayatana
+# no esté empaquetado pero sí la implementación clásica (por ejemplo openSUSE).
+try:
+    gi.require_version("AyatanaAppIndicator3", "0.1")
+    gi.require_version("Gtk", "3.0")
+    from gi.repository import AyatanaAppIndicator3 as AppIndicator3, Gtk, GLib
+except (ValueError, ImportError):
+    gi.require_version("AppIndicator3", "0.1")
+    gi.require_version("Gtk", "3.0")
+    from gi.repository import AppIndicator3, Gtk, GLib
 
 APP_NAME = "onedrive-rclone"
 BASE_DIR = Path(os.environ.get("ONEDRIVE_ASSET_DIR", Path(__file__).resolve().parent))
 MOUNTPOINT = Path(os.environ.get("ONEDRIVE_MOUNTPOINT", Path.home() / "OneDrive"))
 ICON_ONEDRIVE = str(BASE_DIR / "onedrive1.png")
 ICON_WARNING = "dialog-warning"
+ICON_SYNCING = os.environ.get("ONEDRIVE_SYNCING_ICON", "emblem-synchronizing")
 CACHE_DIR = Path(os.environ.get("ONEDRIVE_CACHE_DIR", Path.home() / ".cache/rclone"))
 CACHE_THRESHOLD = int(os.environ.get("ONEDRIVE_CACHE_THRESHOLD", str(125 * 1024 * 1024 * 1024)))
 NOTIFY_INTERVAL = int(os.environ.get("ONEDRIVE_NOTIFY_INTERVAL", str(12 * 60 * 60)))
@@ -46,8 +55,7 @@ class ProgressWindow(Gtk.Window):
         super().__init__(title="Progreso OneDrive")
         self.set_default_size(500, 200)
         self.set_border_width(10)
-        
-        # En Gtk 3 usamos un contenedor scrolleable por si hay muchas transferencias
+
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         self.add(scrolled)
@@ -64,8 +72,7 @@ class ProgressWindow(Gtk.Window):
             if response.status_code == 200 and response.text.strip():
                 stats = response.json()
                 transfers = stats.get("transferring", [])
-                
-                # Limpiar hijos actuales de forma segura en Gtk3
+
                 for child in self.box.get_children():
                     self.box.remove(child)
 
@@ -108,14 +115,33 @@ def show_progress_window(_item) -> None:
 
 
 def check_mount() -> bool:
-    result = run_output(["mount"])
-    return str(MOUNTPOINT) in result.stdout
+    result = run_output(["findmnt", "-rn", "-M", str(MOUNTPOINT)])
+    return result.returncode == 0
 
 
 def update_icon() -> bool:
-    if check_mount():
-        indicator.set_icon_full(ICON_ONEDRIVE, ICON_ONEDRIVE)
-    else:
+    """Actualiza solo el estado visual del tray sin cambiar el resto del programa.
+
+    - warning: montaje desconectado / RC no responde
+    - syncing: hay transferencias activas
+    - OneDrive: montado y sin transferencias activas
+    """
+    if not check_mount():
+        indicator.set_icon_full(ICON_WARNING, ICON_WARNING)
+        return True
+
+    try:
+        response = requests.post(RC_URL, timeout=2)
+        if response.status_code != 200 or not response.text.strip():
+            indicator.set_icon_full(ICON_WARNING, ICON_WARNING)
+            return True
+
+        transfers = response.json().get("transferring", [])
+        if transfers:
+            indicator.set_icon_full(ICON_SYNCING, ICON_SYNCING)
+        else:
+            indicator.set_icon_full(ICON_ONEDRIVE, ICON_ONEDRIVE)
+    except Exception:
         indicator.set_icon_full(ICON_WARNING, ICON_WARNING)
     return True
 
@@ -124,9 +150,59 @@ def open_folder(_item) -> None:
     subprocess.Popen(["xdg-open", str(MOUNTPOINT)])
 
 
+def stop_rclone_mount() -> None:
+    """Detiene únicamente el rclone que monta nuestro punto de montaje."""
+    result = run_output(["ps", "-eo", "pid=,args="])
+    own_pid = str(os.getpid())
+    for line in result.stdout.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) != 2:
+            continue
+        pid, command = parts
+        if pid == own_pid or "rclone mount" not in command:
+            continue
+        if str(MOUNTPOINT) not in command:
+            continue
+        try:
+            subprocess.run(["kill", "-TERM", pid], check=False)
+        except OSError:
+            continue
+
+
+def unmount_mountpoint() -> bool:
+    """Desmonta con reintentos y usa lazy unmount si hay procesos ocupándolo."""
+    if not check_mount():
+        return True
+
+    command = fusermount_command()
+    for _attempt in range(3):
+        subprocess.run(
+            [command, "-u", str(MOUNTPOINT)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if not check_mount():
+            return True
+        time.sleep(1)
+
+    subprocess.run([command, "-uz", str(MOUNTPOINT)], check=False)
+    for _attempt in range(5):
+        if not check_mount():
+            return True
+        time.sleep(1)
+    return False
+
+
 def unmount(_item) -> None:
-    if check_mount():
-        subprocess.run([fusermount_command(), "-u", str(MOUNTPOINT)], check=False)
+    if not unmount_mountpoint():
+        notify(
+            "OneDrive",
+            "No se pudo desmontar la unidad; puede estar siendo usada por Nautilus u otra aplicación.",
+        )
+        return
+
+    stop_rclone_mount()
     Gtk.main_quit()
 
 
@@ -209,10 +285,6 @@ def open_onedrive_recycle_bin(_item) -> None:
     subprocess.Popen(["xdg-open", "https://onedrive.live.com/?view=5"])
 
 
-def exit_without_unmount(_item) -> None:
-    Gtk.main_quit()
-
-
 indicator = AppIndicator3.Indicator.new(
     "onedrive-status",
     ICON_ONEDRIVE,
@@ -262,13 +334,9 @@ progress_root = Gtk.MenuItem(label="Ver progreso")
 progress_root.set_submenu(progress_menu)
 menu.append(progress_root)
 
-unmount_item = Gtk.MenuItem(label="Desmontar OneDrive")
+unmount_item = Gtk.MenuItem(label="Salir")
 unmount_item.connect("activate", unmount)
 menu.append(unmount_item)
-
-exit_item = Gtk.MenuItem(label="Salir")
-exit_item.connect("activate", exit_without_unmount)
-menu.append(exit_item)
 
 menu.show_all()
 indicator.set_menu(menu)
