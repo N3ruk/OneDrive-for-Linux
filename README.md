@@ -1,4 +1,4 @@
-# OneDrive Rclone
+# OneDrive Rclone — v1.5
 
 Indicador GTK/Ayatana para montar OneDrive mediante `rclone`, conservando el funcionamiento original del proyecto y añadiendo portabilidad entre distribuciones Linux y un asistente gráfico de primera configuración.
 
@@ -12,6 +12,18 @@ Al abrir el lanzador **OneDrive**:
 4. Se abre `~/OneDrive` y se inicia el indicador del tray.
 
 El montaje conserva los parámetros del proyecto original, incluidos `--vfs-cache-mode full`, `--dir-cache-time 5m`, `--poll-interval 1m`, `--allow-non-empty`, `--vfs-cache-max-size 150G`, `--vfs-cache-max-age 720h` y el servidor RC utilizado por el indicador.
+
+## Idiomas
+
+Desde la versión **1.5**, al iniciar `install.sh` puedes elegir **Español** o **English**. La elección se guarda en `~/.config/onedrive-rclone/settings.env` y se aplica de forma persistente a:
+
+- el asistente de instalación;
+- el asistente gráfico de configuración de rclone/OneDrive;
+- el menú del tray;
+- las notificaciones, estados y ventana de progreso;
+- los mensajes auxiliares del programa.
+
+La integración de idioma no cambia los parámetros de montaje ni la lógica de funcionamiento de OneDrive/rclone.
 
 ## Instalación
 
