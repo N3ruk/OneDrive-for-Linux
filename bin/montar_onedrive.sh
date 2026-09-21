@@ -7,8 +7,23 @@ SETTINGS_FILE="$CONFIG_HOME/$APP_NAME/settings.env"
 BIN_HOME="${XDG_BIN_HOME:-$HOME/.local/bin}"
 SETUP_SCRIPT="${ONEDRIVE_SETUP_SCRIPT:-$HOME/.local/share/$APP_NAME/setup_rclone.sh}"
 
-# Conserva las variables definidas por el usuario. Solo usa la selección guardada
-# por el asistente cuando ONEDRIVE_REMOTE no se ha definido externamente.
+read_saved_setting() {
+  local key="$1" raw
+  [ -r "$SETTINGS_FILE" ] || return 1
+  raw="$(grep -m1 "^${key}=" "$SETTINGS_FILE" 2>/dev/null | cut -d= -f2- || true)"
+  [ -n "$raw" ] || return 1
+  eval "printf '%s' $raw"
+}
+
+if [ -z "${ONEDRIVE_LANG+x}" ]; then
+  ONEDRIVE_LANG="$(read_saved_setting ONEDRIVE_LANG || printf 'es')"
+fi
+export ONEDRIVE_LANG
+
+say() {
+  if [ "$ONEDRIVE_LANG" = "en" ]; then printf '%s\n' "$2"; else printf '%s\n' "$1"; fi
+}
+
 if [ -z "${ONEDRIVE_REMOTE+x}" ] && [ -r "$SETTINGS_FILE" ]; then
   # shellcheck disable=SC1090
   . "$SETTINGS_FILE"
@@ -29,16 +44,15 @@ remote_is_configured() {
     grep -Eq '^[[:space:]]*type[[:space:]]*=[[:space:]]*onedrive[[:space:]]*$'
 }
 
-# Único añadido al flujo original: si falta rclone o el remoto OneDrive,
-# se abre el asistente. Después de configurarlo, el propio asistente reanuda
-# este mismo lanzador con ONEDRIVE_SKIP_SETUP=1.
 if [ "${ONEDRIVE_SKIP_SETUP:-0}" != "1" ]; then
   if ! command -v rclone >/dev/null 2>&1 || ! remote_is_configured; then
     if [ -x "$SETUP_SCRIPT" ]; then
       "$SETUP_SCRIPT" --from-launcher
       exit $?
     fi
-    echo "rclone no está instalado/configurado y no se encuentra el asistente: $SETUP_SCRIPT" >&2
+    say \
+      "rclone no está instalado/configurado y no se encuentra el asistente: $SETUP_SCRIPT" \
+      "rclone is not installed/configured and the setup assistant cannot be found: $SETUP_SCRIPT" >&2
     exit 1
   fi
 fi
@@ -46,7 +60,7 @@ fi
 mkdir -p "$MOUNTPOINT" "$(dirname "$LOGFILE")" "$CACHE_DIR"
 
 if mountpoint -q "$MOUNTPOINT"; then
-  echo "OneDrive ya está montado en $MOUNTPOINT"
+  say "OneDrive ya está montado en $MOUNTPOINT" "OneDrive is already mounted at $MOUNTPOINT"
 else
   nohup rclone mount "$REMOTE_NAME" "$MOUNTPOINT" \
     --rc \
@@ -63,9 +77,9 @@ else
   sleep 2
 
   if mountpoint -q "$MOUNTPOINT"; then
-    echo "OneDrive montado en $MOUNTPOINT"
+    say "OneDrive montado en $MOUNTPOINT" "OneDrive mounted at $MOUNTPOINT"
   else
-    echo "No se pudo montar OneDrive. Revisa $LOGFILE"
+    say "No se pudo montar OneDrive. Revisa $LOGFILE" "OneDrive could not be mounted. Check $LOGFILE"
     exit 1
   fi
 fi
