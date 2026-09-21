@@ -2,28 +2,38 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
-log "SteamOS detectado."
-log "rclone se instalará de forma portátil en ~/.local/bin para no depender de la partición raíz de SteamOS."
+msg "SteamOS detectado." "SteamOS detected."
+msg "rclone se instalará de forma portátil en ~/.local/bin para no depender de la partición raíz de SteamOS." "rclone will be installed as a portable binary in ~/.local/bin so it does not depend on the SteamOS root partition."
 if ! have_cmd rclone; then
   install_rclone_portable
 else
-  log "rclone ya está disponible: $(command -v rclone)"
+  msg "rclone ya está disponible: $(command -v rclone)" "rclone is already available: $(command -v rclone)"
 fi
 
 if python_indicator_check >/dev/null 2>&1; then
-  log "Las dependencias GTK/AppIndicator ya están disponibles."
+  msg "Las dependencias GTK/AppIndicator ya están disponibles." "GTK/AppIndicator dependencies are already available."
   exit 0
 fi
 
-cat <<'MSG'
+if is_en; then
+  cat <<'MSG'
+GTK/Ayatana indicator dependencies are missing.
+On SteamOS these libraries belong to the base system. The assistant can install
+them with pacman, but a major SteamOS update may remove them and this installer
+would need to be run again.
+MSG
+  read -r -p "Install them now? [y/N]: " answer
+else
+  cat <<'MSG'
 Faltan dependencias del indicador GTK/Ayatana.
 En SteamOS estas bibliotecas pertenecen al sistema base. El asistente puede
 instalarlas con pacman, pero una actualización grande de SteamOS podría
 eliminarlas y habría que volver a ejecutar este instalador.
 MSG
-read -r -p "¿Instalarlas ahora? [s/N]: " answer
+  read -r -p "¿Instalarlas ahora? [s/N]: " answer
+fi
 case "$answer" in
-  s|S|si|SI|sí|Sí)
+  s|S|si|SI|sí|Sí|y|Y|yes|YES)
     was_readonly="unknown"
     restore_readonly=0
     if command -v steamos-readonly >/dev/null 2>&1; then
@@ -44,6 +54,6 @@ case "$answer" in
     fi
     ;;
   *)
-    warn "Se omite la instalación de dependencias GTK. El indicador no arrancará hasta instalarlas."
+    warn "Se omite la instalación de dependencias GTK. El indicador no arrancará hasta instalarlas." "GTK dependency installation skipped. The indicator will not start until they are installed."
     ;;
 esac
