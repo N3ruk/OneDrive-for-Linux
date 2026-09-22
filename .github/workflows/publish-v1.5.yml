@@ -7,7 +7,6 @@ on:
       - main
     paths:
       - '.github/workflows/publish-v1.5.yml'
-      - '.release/OneDrive-for-Linux-v1.5-final.zip'
 
 permissions:
   contents: write
@@ -16,25 +15,35 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout temporary publishing commit
+      - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Verify release asset
+      - name: Build clean v1.5 ZIP from validated source
         shell: bash
         run: |
-          echo '03a8b44a01faa9eede93d7ce46f8f15fc2c0a523b55a1c4e07d3a4ac50df1b58  .release/OneDrive-for-Linux-v1.5-final.zip' | sha256sum -c -
+          set -euo pipefail
+          TARGET=363c34bcd4303c6114ea7329e1425ef157db714d
+          mapfile -t files < <(git ls-tree -r --name-only "$TARGET" | grep -v '^CHANGELOG.md$')
+          git archive \
+            --format=zip \
+            --prefix=OneDrive-for-Linux-v1.5/ \
+            --output=OneDrive-for-Linux-v1.5-final.zip \
+            "$TARGET" "${files[@]}"
+          unzip -t OneDrive-for-Linux-v1.5-final.zip
 
-      - name: Create release and upload exact ZIP
+      - name: Create release and upload v1.5 ZIP
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           if gh release view v1.5 >/dev/null 2>&1; then
-            gh release upload v1.5 .release/OneDrive-for-Linux-v1.5-final.zip --clobber
+            gh release upload v1.5 OneDrive-for-Linux-v1.5-final.zip --clobber
           else
             gh release create v1.5 \
-              .release/OneDrive-for-Linux-v1.5-final.zip \
+              OneDrive-for-Linux-v1.5-final.zip \
               --target 363c34bcd4303c6114ea7329e1425ef157db714d \
               --title 'OneDrive for Linux v1.5 — English Language Support' \
               --notes-file CHANGELOG.md
