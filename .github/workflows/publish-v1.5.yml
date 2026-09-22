@@ -1,0 +1,40 @@
+name: Publish OneDrive v1.5
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/publish-v1.5.yml'
+      - '.release/OneDrive-for-Linux-v1.5-final.zip'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout temporary publishing commit
+        uses: actions/checkout@v4
+
+      - name: Verify release asset
+        shell: bash
+        run: |
+          echo '03a8b44a01faa9eede93d7ce46f8f15fc2c0a523b55a1c4e07d3a4ac50df1b58  .release/OneDrive-for-Linux-v1.5-final.zip' | sha256sum -c -
+
+      - name: Create release and upload exact ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view v1.5 >/dev/null 2>&1; then
+            gh release upload v1.5 .release/OneDrive-for-Linux-v1.5-final.zip --clobber
+          else
+            gh release create v1.5 \
+              .release/OneDrive-for-Linux-v1.5-final.zip \
+              --target 363c34bcd4303c6114ea7329e1425ef157db714d \
+              --title 'OneDrive for Linux v1.5 — English Language Support' \
+              --notes-file CHANGELOG.md
+          fi
