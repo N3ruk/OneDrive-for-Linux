@@ -1,0 +1,99 @@
+name: Publish OneDrive v1.5.2 Hotfix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/hotfix-v1.5.2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  hotfix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enlarge only tray icons to 128x128
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet pillow
+          python3 - <<'PY'
+          from PIL import Image
+          from pathlib import Path
+
+          paths = [
+              Path("assets/onedrive-tray-online.png"),
+              Path("assets/onedrive-tray-syncing.png"),
+              Path("assets/onedrive-tray-warning.png"),
+          ]
+
+          for path in paths:
+              image = Image.open(path).convert("RGBA")
+              if image.size == (64, 64):
+                  image = image.resize((128, 128), Image.Resampling.LANCZOS)
+                  image.save(path, optimize=True)
+              elif image.size != (128, 128):
+                  raise SystemExit(f"Unexpected icon size for {path}: {image.size}")
+              print(path, Image.open(path).size)
+          PY
+
+      - name: Update version metadata only
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i 's/^APP_VERSION="1\.5"$/APP_VERSION="1.5.2"/' install.sh
+          grep -q '^APP_VERSION="1.5.2"$' install.sh
+          printf '1.5.2\n' > VERSION
+
+      - name: Validate unchanged program
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n install.sh
+          bash -n bin/montar_onedrive.sh
+          bash -n bin/setup_rclone.sh
+          for f in installers/*.sh uninstall.sh; do bash -n "$f"; done
+          python3 -m py_compile src/*.py
+          rm -rf src/__pycache__
+
+      - name: Commit hotfix and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/hotfix-v1.5.2.yml
+          git add assets/onedrive-tray-online.png assets/onedrive-tray-syncing.png assets/onedrive-tray-warning.png install.sh VERSION
+          git diff --cached --name-only
+          git commit -m "hotfix: v1.5.2 enlarge tray icons"
+          git push origin HEAD:main
+
+      - name: Build clean release ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          git archive \
+            --format=zip \
+            --prefix=OneDrive-for-Linux-v1.5.2/ \
+            --output=OneDrive-for-Linux-v1.5.2-hotfix.zip \
+            HEAD
+          unzip -t OneDrive-for-Linux-v1.5.2-hotfix.zip
+          sha256sum OneDrive-for-Linux-v1.5.2-hotfix.zip
+
+      - name: Publish v1.5.2 hotfix release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create v1.5.2 \
+            OneDrive-for-Linux-v1.5.2-hotfix.zip \
+            --target "$(git rev-parse HEAD)" \
+            --title "OneDrive for Linux v1.5.2 — Tray Icon Hotfix" \
+            --notes $'## OneDrive for Linux v1.5.2 Hotfix\n\n- Enlarged the three tray icons from 64×64 to 128×128 for improved clarity.\n- Icon design, colors and style are unchanged.\n- Installer now displays version 1.5.2.\n- VERSION updated to 1.5.2.\n- No changes to rclone, mounting, menus, translations, notifications, cache behavior or application logic.'
