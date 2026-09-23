@@ -74,7 +74,7 @@ jobs:
             local content
             content="$(base64 -w0 "$path")"
             jq -n --arg content "$content" '{content:$content,encoding:"base64"}' |
-              gh api --method POST "repos/'"$repo"'/git/blobs" --input - --jq .sha
+              gh api --method POST "repos/$repo/git/blobs" --input - --jq .sha
           }
 
           online_sha="$(make_blob assets/onedrive-tray-online.png)"
