@@ -1,0 +1,52 @@
+name: Refresh v1.5.2 release asset
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/refresh-v1.5.2-release.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build v1.5.2 ZIP from validated main revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET=0ec964978d4fcf7b10ce1fcd8521c8cc4334026f
+          git archive \
+            --format=zip \
+            --prefix=OneDrive-for-Linux-v1.5.2/ \
+            --output=OneDrive-for-Linux-v1.5.2-hotfix.zip \
+            "$TARGET"
+          unzip -t OneDrive-for-Linux-v1.5.2-hotfix.zip
+          sha256sum OneDrive-for-Linux-v1.5.2-hotfix.zip
+
+      - name: Point v1.5.2 tag to validated revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET=0ec964978d4fcf7b10ce1fcd8521c8cc4334026f
+          gh api --method PATCH \
+            "repos/$GITHUB_REPOSITORY/git/refs/tags/v1.5.2" \
+            -f sha="$TARGET" -F force=true
+
+      - name: Replace release ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release delete-asset v1.5.2 OneDrive-for-Linux-v1.5.2-hotfix.zip -y
+          gh release upload v1.5.2 OneDrive-for-Linux-v1.5.2-hotfix.zip
