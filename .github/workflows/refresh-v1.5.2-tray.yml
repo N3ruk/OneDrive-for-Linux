@@ -1,0 +1,88 @@
+name: Refresh OneDrive v1.5.2 tray assets
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/refresh-v1.5.2-tray.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enlarge visible artwork only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet pillow
+          python3 - <<'PY'
+          from PIL import Image
+          from pathlib import Path
+
+          scale = 1.15
+          icons = [
+              Path("assets/onedrive-tray-online.png"),
+              Path("assets/onedrive-tray-syncing.png"),
+              Path("assets/onedrive-tray-warning.png"),
+          ]
+
+          for path in icons:
+              image = Image.open(path).convert("RGBA")
+              if image.size != (128, 128):
+                  raise SystemExit(f"Unexpected size for {path}: {image.size}")
+
+              resized = image.resize(
+                  (round(image.width * scale), round(image.height * scale)),
+                  Image.Resampling.LANCZOS,
+              )
+              canvas = Image.new("RGBA", image.size, (0, 0, 0, 0))
+              x = (image.width - resized.width) // 2
+              y = (image.height - resized.height) // 2
+              canvas.alpha_composite(resized, (x, y))
+              canvas.save(path, optimize=True)
+              print(path, canvas.getchannel("A").getbbox())
+          PY
+
+      - name: Validate only tray assets changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n'             assets/onedrive-tray-online.png             assets/onedrive-tray-syncing.png             assets/onedrive-tray-warning.png | sort)"
+          test "$changed" = "$expected"
+
+      - name: Commit tray asset replacement and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/refresh-v1.5.2-tray.yml
+          git add             assets/onedrive-tray-online.png             assets/onedrive-tray-syncing.png             assets/onedrive-tray-warning.png
+          git commit -m "fix: enlarge visible tray artwork for v1.5.2"
+          git push origin HEAD:main
+
+      - name: Build replacement v1.5.2 ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          git archive             --format=zip             --prefix=OneDrive-for-Linux-v1.5.2/             --output=OneDrive-for-Linux-v1.5.2-hotfix.zip             HEAD
+          unzip -t OneDrive-for-Linux-v1.5.2-hotfix.zip
+          sha256sum OneDrive-for-Linux-v1.5.2-hotfix.zip
+
+      - name: Replace release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release delete-asset v1.5.2 OneDrive-for-Linux-v1.5.2-hotfix.zip -y
+          gh release upload v1.5.2 OneDrive-for-Linux-v1.5.2-hotfix.zip
