@@ -16,6 +16,12 @@ DESKTOP_DIR="$DATA_HOME/applications"
 APP_CONFIG_DIR="$CONFIG_HOME/$APP_NAME"
 SETTINGS_FILE="$APP_CONFIG_DIR/settings.env"
 
+# SteamOS state tracking. We only re-enable read-only mode if this installer
+# actually disabled it, so we do not change a user's pre-existing state.
+STEAMOS_READONLY_WAS_ENABLED=0
+DEPENDENCIES_OK=1
+DEPENDENCIES_SKIPPED=0
+
 choose_language() {
   echo "=============================================="
   echo " OneDrive v$APP_VERSION"
@@ -60,6 +66,118 @@ ask_yes_default() {
   fi
 }
 
+restore_steamos_readonly() {
+  if [ "$STEAMOS_READONLY_WAS_ENABLED" -eq 1 ]; then
+    echo
+    say \
+      "Restaurando la protección de solo lectura de SteamOS..." \
+      "Restoring SteamOS read-only protection..."
+    if sudo steamos-readonly enable >/dev/null 2>&1; then
+      STEAMOS_READONLY_WAS_ENABLED=0
+      say \
+        "Protección de solo lectura restaurada." \
+        "Read-only protection restored."
+    else
+      say \
+        "AVISO: no se pudo restaurar automáticamente el modo de solo lectura. Ejecuta: sudo steamos-readonly enable" \
+        "WARNING: read-only mode could not be restored automatically. Run: sudo steamos-readonly enable" >&2
+    fi
+  fi
+}
+
+cleanup() {
+  restore_steamos_readonly
+}
+
+# Always restore SteamOS protection if the script exits unexpectedly.
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+prepare_steamos_pacman() {
+  local readonly_status=""
+
+  command -v sudo >/dev/null 2>&1 || {
+    say "ERROR: sudo no está disponible." "ERROR: sudo is not available." >&2
+    return 1
+  }
+  command -v steamos-readonly >/dev/null 2>&1 || {
+    say \
+      "ERROR: no se encontró steamos-readonly; no se modificará la raíz del sistema." \
+      "ERROR: steamos-readonly was not found; the system root will not be modified." >&2
+    return 1
+  }
+  command -v pacman >/dev/null 2>&1 || {
+    say "ERROR: pacman no está disponible." "ERROR: pacman is not available." >&2
+    return 1
+  }
+  command -v pacman-key >/dev/null 2>&1 || {
+    say "ERROR: pacman-key no está disponible." "ERROR: pacman-key is not available." >&2
+    return 1
+  }
+
+  say \
+    "SteamOS: preparando temporalmente el sistema para instalar dependencias nativas..." \
+    "SteamOS: temporarily preparing the system to install native dependencies..."
+
+  # Validate sudo once up front, before touching the filesystem state.
+  sudo -v || return 1
+
+  readonly_status="$(sudo steamos-readonly status 2>/dev/null || true)"
+  if [ "$readonly_status" = "enabled" ]; then
+    say \
+      "Desactivando temporalmente la protección de solo lectura..." \
+      "Temporarily disabling read-only protection..."
+    sudo steamos-readonly disable || return 1
+    STEAMOS_READONLY_WAS_ENABLED=1
+  elif [ "$readonly_status" = "disabled" ]; then
+    say \
+      "La protección de solo lectura ya estaba desactivada; se conservará ese estado al terminar." \
+      "Read-only protection was already disabled; that state will be preserved when finished."
+  else
+    say \
+      "AVISO: no se pudo determinar el estado de steamos-readonly; se intentará preparar pacman sin cambiarlo." \
+      "WARNING: steamos-readonly state could not be determined; pacman preparation will be attempted without changing it." >&2
+  fi
+
+  # Initialize the keyring only if it is not usable yet.
+  if ! sudo pacman-key --list-keys >/dev/null 2>&1; then
+    say \
+      "Inicializando el depósito de claves de pacman..." \
+      "Initializing the pacman keyring..."
+    sudo pacman-key --init || return 1
+  fi
+
+  say \
+    "Cargando claves de Arch Linux y SteamOS (holo)..." \
+    "Populating Arch Linux and SteamOS (holo) keys..."
+  sudo pacman-key --populate archlinux holo || return 1
+
+  say \
+    "Actualizando la base de datos de paquetes de SteamOS..." \
+    "Refreshing the SteamOS package database..."
+  # Deliberately use -Sy, not -Syu. SteamOS owns the OS update process.
+  sudo pacman -Sy || return 1
+}
+
+verify_indicator_runtime() {
+  command -v python3 >/dev/null 2>&1 || return 1
+
+  python3 - <<'PY'
+import gi
+
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk  # noqa: F401
+
+try:
+    gi.require_version("AyatanaAppIndicator3", "0.1")
+    from gi.repository import AyatanaAppIndicator3  # noqa: F401
+except (ValueError, ImportError):
+    gi.require_version("AppIndicator3", "0.1")
+    from gi.repository import AppIndicator3  # noqa: F401
+PY
+}
+
 choose_language
 save_language
 
@@ -101,14 +219,54 @@ say \
 echo
 
 if ask_yes_default "¿Instalar/verificar dependencias y rclone para esta distribución?" "Install/verify dependencies and rclone for this distribution?"; then
-  if ! "$installer"; then
+  installer_ok=1
+
+  if [ "$family" = "steamos" ]; then
+    if ! prepare_steamos_pacman; then
+      installer_ok=0
+    fi
+  fi
+
+  if [ "$installer_ok" -eq 1 ]; then
+    if ! "$installer"; then
+      installer_ok=0
+    fi
+  fi
+
+  # Close the temporary SteamOS write window as soon as pacman work finishes.
+  if [ "$family" = "steamos" ]; then
+    restore_steamos_readonly
+  fi
+
+  # On SteamOS, do not trust pacman's exit status alone: verify that the exact
+  # GTK/AppIndicator runtime used by the application is importable by Python.
+  if [ "$installer_ok" -eq 1 ] && [ "$family" = "steamos" ]; then
+    say \
+      "Verificando GTK y Ayatana/AppIndicator desde Python..." \
+      "Verifying GTK and Ayatana/AppIndicator from Python..."
+    if ! verify_indicator_runtime; then
+      installer_ok=0
+      say \
+        "ERROR: las dependencias se instalaron, pero Python no puede cargar GTK/Ayatana AppIndicator." \
+        "ERROR: dependencies were installed, but Python cannot load GTK/Ayatana AppIndicator." >&2
+    fi
+  fi
+
+  if [ "$installer_ok" -ne 1 ]; then
+    DEPENDENCIES_OK=0
     echo >&2
-    say "AVISO: no se pudieron instalar todas las dependencias automáticamente." "WARNING: not all dependencies could be installed automatically." >&2
+    say \
+      "AVISO: no se pudieron preparar o verificar todas las dependencias automáticamente." \
+      "WARNING: not all dependencies could be prepared or verified automatically." >&2
+    say \
+      "Puedes instalar los archivos de OneDrive, pero el indicador puede no funcionar hasta resolver las dependencias." \
+      "You can install the OneDrive files, but the tray indicator may not work until the dependencies are fixed." >&2
     if ! ask_yes_default "¿Instalar igualmente los archivos de OneDrive?" "Install the OneDrive files anyway?"; then
       exit 1
     fi
   fi
 else
+  DEPENDENCIES_SKIPPED=1
   say "Se omite la instalación de dependencias." "Dependency installation skipped."
 fi
 
@@ -178,4 +336,17 @@ say \
   "La primera vez que abras OneDrive, si no existe un remoto OneDrive válido, se abrirá automáticamente el asistente gráfico de configuración." \
   "The first time you open OneDrive, if no valid OneDrive remote exists, the graphical setup assistant will open automatically."
 echo
-say "Instalación terminada. El lanzador aparecerá como: OneDrive" "Installation complete. The launcher will appear as: OneDrive"
+
+if [ "$DEPENDENCIES_OK" -eq 1 ] && [ "$DEPENDENCIES_SKIPPED" -eq 0 ]; then
+  say \
+    "Instalación terminada y dependencias verificadas. El lanzador aparecerá como: OneDrive" \
+    "Installation complete and dependencies verified. The launcher will appear as: OneDrive"
+elif [ "$DEPENDENCIES_SKIPPED" -eq 1 ]; then
+  say \
+    "Archivos instalados. Las dependencias se omitieron y no se han verificado. El lanzador aparecerá como: OneDrive" \
+    "Files installed. Dependencies were skipped and were not verified. The launcher will appear as: OneDrive"
+else
+  say \
+    "Archivos instalados, pero las dependencias no quedaron verificadas. OneDrive puede no funcionar hasta corregirlas." \
+    "Files installed, but dependencies were not verified. OneDrive may not work until they are fixed."
+fi
